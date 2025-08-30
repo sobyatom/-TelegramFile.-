@@ -1,11 +1,14 @@
 import os, json, asyncio, sqlite3, aiohttp
-from fastapi import FastAPI, Request, Form, Header, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from telethon import TelegramClient
 from telethon.tl.types import Document
+
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ───────────── CONFIG ─────────────
 TG_API_ID = int(os.getenv("TG_API_ID", "0"))
@@ -16,6 +19,13 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")  # channel/group to forward uploads
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "changeme")
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
 DB_PATH = os.getenv("DB_PATH", "files.db")
+
+# Auto-detect webhook URL
+if os.getenv("WEBHOOK_URL"):
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+else:
+    hostname = os.getenv("KOYEB_APP_HOSTNAME")
+    WEBHOOK_URL = f"https://{hostname}" if hostname else ""
 
 # ───────────── DB ─────────────
 SCHEMA = """
@@ -99,9 +109,6 @@ async def download(msg_id: int):
         return StreamingResponse(file_iter(), headers=headers)
 
 # ───────────── BOT HANDLERS ─────────────
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
 BOT_APP = Application.builder().token(TG_BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,11 +152,19 @@ BOT_APP.add_handler(CommandHandler("start", start))
 BOT_APP.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 BOT_APP.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_url))
 
-# ───────────── STARTUP ─────────────
+# ───────────── WEBHOOK ─────────────
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, BOT_APP.bot)
+    await BOT_APP.process_update(update)
+    return {"ok": True}
+
 @app.on_event("startup")
 async def startup():
     await client.start(bot_token=TG_BOT_TOKEN)
-    asyncio.create_task(BOT_APP.run_polling())
+    if WEBHOOK_URL:
+        await BOT_APP.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
 
 @app.on_event("shutdown")
 async def shutdown():
