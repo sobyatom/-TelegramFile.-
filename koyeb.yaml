@@ -6,10 +6,14 @@ env:
     value: "-1001234567890"
   - key: WEB_PASSWORD
     value: "yourpassword"
-  - key: SECRET_KEY
-    value: "a-very-random-secret"
+  - key: TG_API_ID
+    value: "123456"
+  - key: TG_API_HASH
+    value: "abcdef1234567890"
   - key: PORT
     value: "8080"
 routes:
   - path: /
+    port: 8080
+  - path: /webhook/*
     port: 8080
