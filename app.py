@@ -1,160 +1,156 @@
-import os
-import json
-import io
-import aiohttp
-import asyncio
-import sqlite3
-from contextlib import contextmanager
+import os, json, asyncio, sqlite3, aiohttp
+from fastapi import FastAPI, Request, Form, Header, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from telethon import TelegramClient
+from telethon.tl.types import Document
 
-from fastapi import FastAPI, Request, Header, HTTPException
-from fastapi.responses import StreamingResponse, HTMLResponse
-from telegram import Update, Bot, InputFile
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from telethon import TelegramClient, InputDocumentFileLocation
-
-# ---------------- ENV ----------------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", 0))
-WEB_PASSWORD = os.getenv("WEB_PASSWORD", "password")
-TG_API_ID = int(os.getenv("TG_API_ID", 0))
+# ───────────── CONFIG ─────────────
+TG_API_ID = int(os.getenv("TG_API_ID", "0"))
 TG_API_HASH = os.getenv("TG_API_HASH", "")
-DB_PATH = "bundles.db"
-PORT = int(os.getenv("PORT", 8080))
-CHUNK_SIZE = 1900 * 1024 * 1024  # ~1.9GB
+TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
+CHANNEL_ID = os.getenv("CHANNEL_ID")  # channel/group to forward uploads
 
-# ---------------- APP ----------------
-app = FastAPI()
-bot = Bot(BOT_TOKEN)
-application = ApplicationBuilder().token(BOT_TOKEN).build()
-tele_client = TelegramClient("session", TG_API_ID, TG_API_HASH)
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "changeme")
+SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
+DB_PATH = os.getenv("DB_PATH", "files.db")
 
-# ---------------- DATABASE ----------------
+# ───────────── DB ─────────────
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS bundles (
-    id TEXT PRIMARY KEY,
-    filename TEXT,
-    message_ids TEXT,
-    total_size INTEGER
+CREATE TABLE IF NOT EXISTS files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_name TEXT,
+  file_size INTEGER,
+  message_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 """
-@contextmanager
+con = sqlite3.connect(DB_PATH)
+con.execute(SCHEMA)
+con.commit()
+con.close()
+
+# ───────────── TELEGRAM ─────────────
+client = TelegramClient("bot", TG_API_ID, TG_API_HASH)
+
+# ───────────── FASTAPI ─────────────
+app = FastAPI(title="Telegram Index Bot")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+templates = Jinja2Templates(directory="templates")
+
+# ───────────── UTILS ─────────────
 def db():
-    con = sqlite3.connect(DB_PATH)
-    try: yield con
-    finally: con.commit(); con.close()
-with db() as c: c.execute(SCHEMA)
+    return sqlite3.connect(DB_PATH)
 
-# ---------------- BOT ----------------
+async def save_file_info(name, size, mid):
+    with db() as con:
+        con.execute("INSERT INTO files (file_name, file_size, message_id) VALUES (?,?,?)",
+                    (name, size, mid))
+        con.commit()
+
+# ───────────── WEB ROUTES ─────────────
+@app.get("/", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if request.session.get("auth"):
+        return RedirectResponse(url="/index")
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login")
+async def login(request: Request, password: str = Form(...)):
+    if password == WEB_PASSWORD:
+        request.session["auth"] = True
+        return RedirectResponse(url="/index", status_code=302)
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid password"})
+
+@app.get("/index", response_class=HTMLResponse)
+async def index(request: Request):
+    if not request.session.get("auth"):
+        return RedirectResponse(url="/")
+    with db() as con:
+        rows = con.execute("SELECT id,file_name,file_size,message_id FROM files ORDER BY created_at DESC").fetchall()
+    files = [{"id": r[0], "name": r[1], "size": r[2], "mid": r[3]} for r in rows]
+    return templates.TemplateResponse("index.html", {"request": request, "files": files})
+
+@app.get("/download/{msg_id}")
+async def download(msg_id: int):
+    async with client:
+        msg = await client.get_messages(CHANNEL_ID, ids=msg_id)
+        if not msg or not msg.document:
+            raise HTTPException(404, "File not found in Telegram")
+        doc: Document = msg.document
+
+        async def file_iter():
+            async for chunk in client.iter_download(doc, chunk_size=1024 * 512):
+                yield chunk
+
+        headers = {
+            "Content-Disposition": f'attachment; filename="{doc.attributes[0].file_name}"',
+            "Content-Length": str(doc.size),
+        }
+        return StreamingResponse(file_iter(), headers=headers)
+
+# ───────────── BOT HANDLERS ─────────────
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+BOT_APP = Application.builder().token(TG_BOT_TOKEN).build()
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Send a document or use /url <direct_link> to upload.\n"
-        "Files >2GB will be split automatically."
-    )
+    await update.message.reply_text("Send me a direct URL or upload a file, I'll forward to channel & index it.")
 
-async def url_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        return await update.message.reply_text("Usage: /url <direct_link>")
-    url = context.args[0]
-    msg = await update.message.reply_text(f"⏳ Downloading URL...")
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                return await msg.edit_text("❌ Failed to download URL.")
-            total_size = int(resp.headers.get("Content-Length", 0))
-            file_id = url.split("/")[-1].replace(" ", "_")
-            message_ids = []
-            downloaded = 0
-            buffer = bytearray()
-            chunk_index = 0
-            
-            async for chunk in resp.content.iter_chunked(10_485_760):
-                buffer.extend(chunk)
-                downloaded += len(chunk)
-                if len(buffer) >= CHUNK_SIZE:
-                    chunk_index += 1
-                    f = InputFile(io.BytesIO(buffer), filename=f"{file_id}.part{chunk_index}")
-                    sent = await bot.send_document(CHANNEL_ID, f)
-                    message_ids.append(sent.message_id)
-                    await msg.edit_text(f"Uploaded chunk {chunk_index}, {downloaded//(1024*1024)}MB/{total_size//(1024*1024)}MB")
-                    buffer = bytearray()
-            if buffer:
-                chunk_index += 1
-                f = InputFile(io.BytesIO(buffer), filename=f"{file_id}.part{chunk_index}")
-                sent = await bot.send_document(CHANNEL_ID, f)
-                message_ids.append(sent.message_id)
-            with db() as con:
-                con.execute(
-                    "INSERT OR REPLACE INTO bundles (id, filename, message_ids, total_size) VALUES (?,?,?,?)",
-                    (file_id, file_id, json.dumps(message_ids), total_size)
-                )
-            await msg.edit_text(f"✅ Upload complete! {chunk_index} chunks uploaded.")
-
-async def forward_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.document:
+        return
     doc = update.message.document
-    if doc:
-        msg_status = await update.message.reply_text("⏳ Forwarding document...")
-        sent = await update.message.forward(chat_id=CHANNEL_ID)
-        with db() as con:
-            con.execute(
-                "INSERT OR REPLACE INTO bundles (id, filename, message_ids, total_size) VALUES (?,?,?,?)",
-                (str(doc.file_unique_id), doc.file_name, json.dumps([sent.message_id]), doc.file_size)
-            )
-        await msg_status.edit_text("✅ Document forwarded and indexed!")
+    # forward to channel
+    fwd = await context.bot.forward_message(chat_id=CHANNEL_ID, from_chat_id=update.effective_chat.id, message_id=update.message.id)
+    await save_file_info(doc.file_name, doc.file_size, fwd.message_id)
+    await update.message.reply_text(f"✅ Uploaded & indexed: {doc.file_name}")
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("url", url_upload))
-application.add_handler(MessageHandler(filters.Document.ALL, forward_document))
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    if not url.startswith("http"):
+        return
+    await update.message.reply_text("⏳ Downloading file from URL...")
+    filename = url.split("/")[-1]
+    async with aiohttp.ClientSession() as sess:
+        async with sess.get(url) as resp:
+            if resp.status != 200:
+                await update.message.reply_text("❌ Failed to fetch URL")
+                return
+            tmp_path = f"/tmp/{filename}"
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = await resp.content.read(1024 * 512)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+    # upload to channel
+    async with client:
+        msg = await client.send_file(CHANNEL_ID, tmp_path, caption=filename)
+    await save_file_info(filename, os.path.getsize(tmp_path), msg.id)
+    await update.message.reply_text(f"✅ Uploaded & indexed from URL: {filename}")
+    os.remove(tmp_path)
 
-# ---------------- WEBHOOK ----------------
-@app.post(f"/webhook/{BOT_TOKEN}")
-async def webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, bot)
-    await application.update_queue.put(update)
-    return {"ok": True}
+BOT_APP.add_handler(CommandHandler("start", start))
+BOT_APP.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+BOT_APP.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_url))
 
-# ---------------- WEB INDEX ----------------
-@app.get("/")
-async def index(password: str = ""):
-    if password != WEB_PASSWORD:
-        return HTMLResponse("<h3>Unauthorized</h3>", status_code=401)
-    html = "<h2>File Index</h2><ul>"
-    with db() as con:
-        for row in con.execute("SELECT id, filename FROM bundles"):
-            file_id, fname = row[0], row[1]
-            html += f'<li>{fname} - <a href="/download/{file_id}">Download</a></li>'
-    html += "</ul>"
-    return HTMLResponse(html)
-
-# ---------------- STREAM DOWNLOAD ----------------
-@app.get("/download/{bundle_id}")
-async def download(bundle_id: str, range: str = Header(None)):
-    with db() as con:
-        row = con.execute("SELECT message_ids, filename FROM bundles WHERE id=?", (bundle_id,)).fetchone()
-    if not row: raise HTTPException(404, "Bundle not found")
-    msg_ids = json.loads(row[0])
-    filename = row[1]
-
-    async def stream_bytes():
-        for mid in msg_ids:
-            location = InputDocumentFileLocation(id=mid, access_hash=0, file_reference=b"", thumb_size="")
-            data = await tele_client.download_file(location)
-            yield data
-
-    headers = {"Content-Disposition": f'inline; filename="{filename}"'}
-    return StreamingResponse(stream_bytes(), headers=headers)
-
-# ---------------- STARTUP ----------------
+# ───────────── STARTUP ─────────────
 @app.on_event("startup")
-async def startup_event():
-    await application.initialize()
-    await application.start()
-    await tele_client.start()
-    print("✅ Bot webhook + Telethon client ready")
+async def startup():
+    await client.start(bot_token=TG_BOT_TOKEN)
+    asyncio.create_task(BOT_APP.run_polling())
 
 @app.on_event("shutdown")
-async def shutdown_event():
-    await application.stop()
-    await application.shutdown()
-    await tele_client.disconnect()
+async def shutdown():
+    await client.disconnect()
