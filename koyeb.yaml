@@ -1,8 +1,10 @@
 name: telegram-index-bot
-
 services:
   - name: tgindex
     type: web
+    ports:
+      - port: 8080
+        protocol: http
     env:
       - key: TG_API_ID
         value: "123456"
@@ -16,13 +18,3 @@ services:
         value: "changeme"
       - key: SECRET_KEY
         value: "mysecretkey"
-    routes:
-      - src: /
-        dest: /
-    docker:
-      image: heroku/python
-    build:
-      builder: heroku/buildpacks:20
-      run: |
-        pip install -r requirements.txt
-    command: uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
