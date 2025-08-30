@@ -14,9 +14,11 @@ app = FastAPI()
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 templates = Jinja2Templates(directory="templates")
-import os
+
+# --- Mount static folder only if it exists ---
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.on_event("startup")
 async def startup():
     init_db()
