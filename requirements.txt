@@ -1,7 +1,8 @@
 fastapi
-uvicorn[standard]
-jinja2
-python-multipart
-aiohttp
+uvicorn
+python-telegram-bot==20.3
 telethon
+aiohttp
+jinja2
 itsdangerous
+python-multipart
