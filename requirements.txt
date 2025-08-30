@@ -1,8 +1,6 @@
 fastapi
 uvicorn
-python-telegram-bot==20.3
-telethon
+pyrogram
+tgcrypto
 aiohttp
 jinja2
-itsdangerous
-python-multipart
