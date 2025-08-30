@@ -1,18 +1,15 @@
-<!DOCTYPE html>
-<html>
-<head><title>Files</title></head>
-<body>
-  <h2>Uploaded Files</h2>
-  <table border="1">
-    <tr><th>Name</th><th>Size (MB)</th><th>Date</th><th>Link</th></tr>
-    {% for file in files %}
-    <tr>
-      <td>{{ file.name }}</td>
-      <td>{{ (file.size / (1024*1024))|round(2) }}</td>
-      <td>{{ file.date_iso }}</td>
-      <td><a href="{{ file.link }}" target="_blank">Download</a></td>
-    </tr>
+{% extends "layout.html" %}
+{% block content %}
+  {% if files %}
+    <ul>
+    {% for f in files %}
+      <li>
+        {{ f[2] }} ({{ (f[3] / (1024*1024))|round(2) }} MB) →
+        <a href="/stream/{{ f[1] }}">Download/Stream</a>
+      </li>
     {% endfor %}
-  </table>
-</body>
-</html>
+    </ul>
+  {% else %}
+    <p>No files found.</p>
+  {% endif %}
+{% endblock %}
