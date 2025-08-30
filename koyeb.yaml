@@ -1,0 +1,4 @@
+name: telegram-index-bot
+build:
+  type: docker
+  dockerfile: Dockerfile
