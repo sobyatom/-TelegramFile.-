@@ -1,4 +1,10 @@
 name: telegram-index-bot
-build:
-  type: docker
-  dockerfile: Dockerfile
+env:
+  - key: BOT_TOKEN
+    value: "your_bot_token"
+  - key: CHANNEL_ID
+    value: "-1001234567890"
+  - key: WEB_PASSWORD
+    value: "secret123"
+  - key: SECRET_KEY
+    value: "randomsecret"
