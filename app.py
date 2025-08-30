@@ -1,13 +1,14 @@
 import os
-from fastapi import FastAPI, Request, Form, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+import asyncio
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import PlainTextResponse
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telegram import Update
 from telegram.ext import Application, CommandHandler
+from telegram.error import RetryAfter
 import uvicorn
 
 # =========================
@@ -22,7 +23,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
 
 # =========================
-# Telethon Client (no sqlite)
+# Telethon Client
 # =========================
 if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), TG_API_ID, TG_API_HASH)
@@ -52,20 +53,35 @@ bot_app = Application.builder().token(BOT_TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("help", help_cmd))
 
+# =========================
+# Startup & Shutdown
+# =========================
 @app.on_event("startup")
 async def startup():
     await client.start()
     if WEBHOOK_URL:
-        await bot_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}")
+        # Retry webhook up to 5 times
+        for attempt in range(5):
+            try:
+                await bot_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}")
+                print("Webhook set successfully")
+                break
+            except RetryAfter as e:
+                print(f"Flood control, retrying in {e.retry_after} seconds...")
+                await asyncio.sleep(e.retry_after)
+        else:
+            print("Failed to set webhook after multiple attempts")
     else:
         await bot_app.initialize()
         await bot_app.start()
+        print("Polling started")
 
 @app.on_event("shutdown")
 async def shutdown():
     await client.disconnect()
     if not WEBHOOK_URL:
         await bot_app.stop()
+    print("Shutdown complete")
 
 # =========================
 # Webhook for Telegram
@@ -80,12 +96,12 @@ async def webhook(token: str, request: Request):
     return PlainTextResponse("OK")
 
 # =========================
-# Web Index (password protected)
+# Web Interface
 # =========================
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     if request.session.get("logged_in"):
-        files = ["example1.mp4", "example2.zip"]  # TODO: Replace with Telegram fetch
+        files = ["example1.mp4", "example2.zip"]  # TODO: fetch real Telegram files
         return templates.TemplateResponse("index.html", {"request": request, "files": files})
     return RedirectResponse("/login")
 
