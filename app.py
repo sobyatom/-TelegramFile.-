@@ -29,12 +29,10 @@ TG_API_HASH = os.getenv("TG_API_HASH", "")
 TG_SESSION_STRING = os.getenv("TG_SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 CHANNEL_ID_RAW = os.getenv("CHANNEL_ID", "")
-# allow channel id like -100123... or numeric string
 CHANNEL_ID = int(CHANNEL_ID_RAW) if CHANNEL_ID_RAW else None
 
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
-# WEBHOOK_URL can be provided or auto-detected from KOYEB_APP_HOSTNAME
 if os.getenv("WEBHOOK_URL"):
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 else:
@@ -42,12 +40,11 @@ else:
     WEBHOOK_URL = f"https://{hostname}" if hostname else ""
 
 # -------------------------
-# Telethon client (StringSession to avoid sqlite locking)
+# Telethon client
 # -------------------------
 if TG_SESSION_STRING:
     tele_client = TelegramClient(StringSession(TG_SESSION_STRING), TG_API_ID, TG_API_HASH)
 else:
-    # fallback - will create a local session file (not ideal for containers)
     tele_client = TelegramClient("bot_session", TG_API_ID, TG_API_HASH)
 
 # -------------------------
@@ -58,7 +55,7 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 templates = Jinja2Templates(directory="templates")
 
 # -------------------------
-# python-telegram-bot (for webhook handling)
+# python-telegram-bot
 # -------------------------
 bot_app = Application.builder().token(BOT_TOKEN).build()
 
@@ -207,14 +204,13 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
         print("Error forwarding document:", e, traceback.format_exc())
         await status.edit_text(f"❌ Forward failed: {e}")
 
-# register handlers
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("help", help_cmd))
 bot_app.add_handler(CommandHandler("upload", upload_cmd))
 bot_app.add_handler(MessageHandler(filters.ALL, on_message_all))
 
 # -------------------------
-# FastAPI routes: webhook + web ui
+# FastAPI routes
 # -------------------------
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
@@ -241,10 +237,7 @@ async def index(request: Request):
         return RedirectResponse("/login")
     files = await list_channel_files(limit=50)
     for f in files:
-        if f["date"]:
-            f["date_iso"] = f["date"].isoformat()
-        else:
-            f["date_iso"] = ""
+        f["date_iso"] = f["date"].isoformat() if f["date"] else ""
     return templates.TemplateResponse("index.html", {"request": request, "files": files})
 
 @app.get("/download/telegram/{msg_id}")
@@ -268,44 +261,14 @@ async def startup_event():
     print("🚀 Starting Telethon client and initializing webhook/polling...")
     await tele_client.start()
     await bot_app.initialize()
+
     if WEBHOOK_URL:
         wh = f"{WEBHOOK_URL}/webhook"
-        print("Setting webhook to:", wh)
-        for attempt in range(5):
-            try:
-                await bot_app.bot.set_webhook(wh)
-                print("✅ Webhook registered with Telegram.")
-                break
-            except RetryAfter as e:
-                wait = getattr(e, "retry_after", 5)
-                print(f"⚠️ Telegram Flood; retrying webhook in {wait}s (attempt {attempt+1})")
-                await asyncio.sleep(wait)
-            except Exception as e:
-                print("❌ Failed to set webhook:", e, traceback.format_exc())
-                await asyncio.sleep(2)
-        else:
-            print("⚠️ Could not set webhook after retries; bot will start polling instead.")
-            await bot_app.start()
-    else:
-        print("No WEBHOOK_URL set; starting polling mode")
-        await bot_app.start()
+        print("🧹 Deleting any old webhook...")
+        try:
+            await bot_app.bot.delete_webhook()
+            print("✅ Old webhook deleted")
+        except Exception as e:
+            print("⚠️ Failed to delete old webhook:", e)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("🛑 Shutting down bot and telethon client...")
-    try:
-        if not WEBHOOK_URL:
-            await bot_app.stop()
-    except Exception:
-        pass
-    try:
-        await tele_client.disconnect()
-    except Exception:
-        pass
-    print("🛑 Shutdown complete")
-
-# -------------------------
-# Entrypoint
-# -------------------------
-if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), reload=False, workers=1)
+        print("🔗 Setting new webhook
