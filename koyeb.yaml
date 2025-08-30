@@ -1,20 +1,26 @@
 name: telegram-index-bot
 services:
-  - name: tgindex
+  - name: tg-bot
     type: web
-    ports:
-      - port: 8080
-        protocol: http
     env:
       - key: TG_API_ID
         value: "123456"
       - key: TG_API_HASH
-        value: "abcdef123456abcdef123456abcdef12"
-      - key: TG_BOT_TOKEN
-        value: "123456:ABC-your-bot-token"
+        value: "your_api_hash"
+      - key: TG_SESSION_STRING
+        value: "your_long_session_string"
+      - key: BOT_TOKEN
+        value: "your_bot_token"
       - key: CHANNEL_ID
         value: "-1001234567890"
+      - key: WEBHOOK_URL
+        value: "https://<your-app>.koyeb.app"
       - key: WEB_PASSWORD
-        value: "changeme"
-      - key: SECRET_KEY
-        value: "mysecretkey"
+        value: "admin"
+    ports:
+      - port: 8080
+        protocol: http
+    build:
+      type: docker
+    run:
+      cmd: uvicorn app:app --host 0.0.0.0 --port 8080
