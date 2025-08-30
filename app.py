@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.middleware.sessions import SessionMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import PlainTextResponse
 from telethon import TelegramClient
 from telethon.sessions import StringSession
