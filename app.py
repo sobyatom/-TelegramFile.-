@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TG_API_ID = int(os.getenv("TG_API_ID", "0"))
 TG_API_HASH = os.getenv("TG_API_HASH", "")
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
-CHANNEL_ID = os.getenv("CHANNEL_ID")  # channel/group to forward uploads
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "changeme")
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
@@ -118,7 +118,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.document:
         return
     doc = update.message.document
-    # forward to channel
     fwd = await context.bot.forward_message(chat_id=CHANNEL_ID, from_chat_id=update.effective_chat.id, message_id=update.message.id)
     await save_file_info(doc.file_name, doc.file_size, fwd.message_id)
     await update.message.reply_text(f"✅ Uploaded & indexed: {doc.file_name}")
@@ -141,7 +140,6 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if not chunk:
                         break
                     f.write(chunk)
-    # upload to channel
     async with client:
         msg = await client.send_file(CHANNEL_ID, tmp_path, caption=filename)
     await save_file_info(filename, os.path.getsize(tmp_path), msg.id)
@@ -169,3 +167,8 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     await client.disconnect()
+
+# ───────────── ENTRYPOINT ─────────────
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), reload=False, workers=1)
