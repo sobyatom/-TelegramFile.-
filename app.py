@@ -254,21 +254,25 @@ async def download_via_telegram(msg_id: int):
     return StreamingResponse(streamer(), headers=headers)
 
 # -------------------------
-# Startup & shutdown events
+# Startup & shutdown events (safe)
 # -------------------------
 @app.on_event("startup")
 async def startup_event():
     print("🚀 Starting Telethon client and initializing webhook/polling...")
-    await tele_client.start()
-    await bot_app.initialize()
+    try:
+        await tele_client.start()
+        print("✅ Telethon client started")
 
-    if WEBHOOK_URL:
-        wh = f"{WEBHOOK_URL}/webhook"
-        print("🧹 Deleting any old webhook...")
-        try:
-            await bot_app.bot.delete_webhook()
-            print("✅ Old webhook deleted")
-        except Exception as e:
-            print("⚠️ Failed to delete old webhook:", e)
+        await bot_app.initialize()
+        print("✅ PTB bot initialized")
 
-        print("🔗 Setting new webhook
+        if WEBHOOK_URL:
+            wh = f"{WEBHOOK_URL}/webhook"
+            print("🧹 Deleting any old webhook...")
+            try:
+                await bot_app.bot.delete_webhook()
+                print("✅ Old webhook deleted")
+            except Exception as e:
+                print("⚠️ Failed to delete old webhook:", e)
+
+            print("🔗 Setting
