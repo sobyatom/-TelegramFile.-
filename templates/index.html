@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html>
-<head><title>File Index</title></head>
+<head><title>Index</title></head>
 <body>
-<h2>Telegram File Index</h2>
-<ul>
-  <!-- Dynamically generated from / endpoint -->
-</ul>
+  <h2>Files</h2>
+  <ul>
+  {% for f in files %}
+    <li>{{ f.name }} ({{ f.size }} bytes) — <a href="/download/{{ f.mid }}">Download</a></li>
+  {% endfor %}
+  </ul>
 </body>
 </html>
