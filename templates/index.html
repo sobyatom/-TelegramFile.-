@@ -1,26 +1,18 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Link→Link Telegram Storage</title>
-</head>
+<head><title>Files</title></head>
 <body>
-<h2>Upload File or URL</h2>
-
-<form action="/upload_file" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" required>
-    <button type="submit">Upload</button>
-</form>
-
-<form action="/upload_url" method="post">
-    <input type="url" name="url" placeholder="Direct file URL" required>
-    <button type="submit">Upload URL</button>
-</form>
-
-<h2>Files in Channel</h2>
-<ul>
-    {% for f in files %}
-    <li>{{ f.name }} - <a href="{{ f.link }}">Download</a></li>
+  <h2>Uploaded Files</h2>
+  <table border="1">
+    <tr><th>Name</th><th>Size (MB)</th><th>Date</th><th>Link</th></tr>
+    {% for file in files %}
+    <tr>
+      <td>{{ file.name }}</td>
+      <td>{{ (file.size / (1024*1024))|round(2) }}</td>
+      <td>{{ file.date_iso }}</td>
+      <td><a href="{{ file.link }}" target="_blank">Download</a></td>
+    </tr>
     {% endfor %}
-</ul>
+  </table>
 </body>
 </html>
