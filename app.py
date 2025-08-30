@@ -1,5 +1,6 @@
 import os
 import asyncio
+import aiohttp
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
@@ -7,7 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telegram import Update
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.error import RetryAfter
 import uvicorn
 
@@ -41,10 +42,39 @@ templates = Jinja2Templates(directory="templates")
 # Bot Commands
 # =========================
 async def start(update: Update, context):
-    await update.message.reply_text("👋 Bot is alive! Send me a file or link to upload.")
+    await update.message.reply_text("👋 Bot is alive!\nSend me a file or direct link to upload to Telegram.")
 
 async def help_cmd(update: Update, context):
-    await update.message.reply_text("ℹ️ Commands:\n/start - check bot\n/help - help info")
+    await update.message.reply_text("ℹ️ Commands:\n/start - check bot\n/help - help info\nJust send me a file or link.")
+
+# =========================
+# File & Link Handling
+# =========================
+async def handle_message(update: Update, context):
+    if update.message.document or update.message.video or update.message.audio:
+        # Forward uploaded file to channel
+        msg = await update.message.forward(CHANNEL_ID)
+        await update.message.reply_text(f"✅ File uploaded to channel.\nLink: https://t.me/c/{str(CHANNEL_ID)[4:]}/{msg.id}")
+    elif update.message.text and update.message.text.startswith("http"):
+        # Download from direct link then upload
+        url = update.message.text.strip()
+        await update.message.reply_text("⏳ Downloading your file, please wait...")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        fname = url.split("/")[-1] or "file.bin"
+                        data = await resp.read()
+                        sent = await context.bot.send_document(
+                            chat_id=CHANNEL_ID,
+                            document=data,
+                            filename=fname
+                        )
+                        await update.message.reply_text(f"✅ Uploaded from link.\nLink: https://t.me/c/{str(CHANNEL_ID)[4:]}/{sent.id}")
+                    else:
+                        await update.message.reply_text("❌ Failed to download file.")
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {e}")
 
 # =========================
 # Telegram Bot Application
@@ -52,6 +82,7 @@ async def help_cmd(update: Update, context):
 bot_app = Application.builder().token(BOT_TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("help", help_cmd))
+bot_app.add_handler(MessageHandler(filters.ALL, handle_message))
 
 # =========================
 # Startup & Shutdown
@@ -60,7 +91,6 @@ bot_app.add_handler(CommandHandler("help", help_cmd))
 async def startup():
     await client.start()
     if WEBHOOK_URL:
-        # Retry webhook up to 5 times
         for attempt in range(5):
             try:
                 await bot_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}")
@@ -69,8 +99,6 @@ async def startup():
             except RetryAfter as e:
                 print(f"Flood control, retrying in {e.retry_after} seconds...")
                 await asyncio.sleep(e.retry_after)
-        else:
-            print("Failed to set webhook after multiple attempts")
     else:
         await bot_app.initialize()
         await bot_app.start()
@@ -101,7 +129,12 @@ async def webhook(token: str, request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     if request.session.get("logged_in"):
-        files = ["example1.mp4", "example2.zip"]  # TODO: fetch real Telegram files
+        files = []
+        async for msg in client.iter_messages(CHANNEL_ID, limit=20):
+            if msg.document or msg.video or msg.audio:
+                fname = msg.file.name if msg.file else "unnamed"
+                link = f"https://t.me/c/{str(CHANNEL_ID)[4:]}/{msg.id}"
+                files.append({"name": fname, "link": link})
         return templates.TemplateResponse("index.html", {"request": request, "files": files})
     return RedirectResponse("/login")
 
@@ -120,4 +153,4 @@ async def login(request: Request, password: str = Form(...)):
 # Main
 # =========================
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), workers=1)
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), workers=1)               
