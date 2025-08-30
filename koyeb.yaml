@@ -1,10 +1,15 @@
-name: telegram-index-bot
+name: Personal-Telegram-bot
 env:
   - key: BOT_TOKEN
-    value: "your_bot_token"
+    value: "YOUR_BOT_TOKEN"
   - key: CHANNEL_ID
     value: "-1001234567890"
   - key: WEB_PASSWORD
-    value: "secret123"
+    value: "yourpassword"
   - key: SECRET_KEY
-    value: "randomsecret"
+    value: "a-very-random-secret"
+  - key: PORT
+    value: "8080"
+routes:
+  - path: /
+    port: 8080
