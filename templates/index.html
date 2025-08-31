@@ -1,22 +1,132 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Telegram Storage</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Telegram File Index</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'Roboto', sans-serif;
+        background: #f5f7fa;
+        min-height: 100vh;
+        padding: 20px;
+    }
+    .container {
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+    h1 {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #333;
+    }
+    form.search-bar {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 30px;
+    }
+    form.search-bar input {
+        width: 50%;
+        padding: 12px 15px;
+        border-radius: 8px 0 0 8px;
+        border: 1px solid #ccc;
+        font-size: 16px;
+    }
+    form.search-bar button {
+        padding: 12px 20px;
+        border-radius: 0 8px 8px 0;
+        border: none;
+        background-color: #4caf50;
+        color: white;
+        font-size: 16px;
+        cursor: pointer;
+        transition: 0.3s ease;
+    }
+    form.search-bar button:hover {
+        background-color: #45a049;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    table th, table td {
+        padding: 12px 15px;
+        text-align: left;
+    }
+    table th {
+        background-color: #4caf50;
+        color: white;
+        font-weight: 500;
+    }
+    table tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+    a.button {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background-color: #4caf50;
+        color: white;
+        text-decoration: none;
+        font-size: 14px;
+        transition: 0.3s ease;
+    }
+    a.button:hover {
+        background-color: #45a049;
+    }
+    .footer {
+        margin-top: 40px;
+        text-align: center;
+        font-size: 12px;
+        color: #666;
+    }
+</style>
 </head>
 <body>
-<h1>Files</h1>
-<form method="get">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search...">
-    <button type="submit">Search</button>
-</form>
-<form method="post" action="/upload">
-    <input type="text" name="url" placeholder="Direct file URL">
-    <button type="submit">Upload</button>
-</form>
-<ul>
-{% for f in files %}
-<li>{{ f.name }} - <a href="/stream/{{ f.id }}">Download</a></li>
-{% endfor %}
-</ul>
+<div class="container">
+    <h1>Telegram File Index</h1>
+
+    <form class="search-bar" method="get" action="/">
+        <input type="text" name="q" placeholder="Search files..." value="{{ q }}">
+        <button type="submit">Search</button>
+    </form>
+
+    {% if files %}
+    <table>
+        <thead>
+            <tr>
+                <th>File Name</th>
+                <th>Size (MB)</th>
+                <th>Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for file in files %}
+            <tr>
+                <td>{{ file.name }}</td>
+                <td>{{ (file.size / (1024*1024)) | round(2) }}</td>
+                <td>{{ file.date_iso }}</td>
+                <td>
+                    <a class="button" href="/stream/{{ file.msg_id }}">Stream</a>
+                    <a class="button" href="/download/telegram/{{ file.msg_id }}">Download</a>
+                    <a class="button" href="{{ file.link }}" target="_blank">Telegram Link</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p style="text-align:center; margin-top:50px; color:#888;">No files found.</p>
+    {% endif %}
+
+    <div class="footer">© 2025 Telegram Storage</div>
+</div>
 </body>
 </html>
