@@ -1,15 +1,22 @@
-{% extends "layout.html" %}
-{% block content %}
-  {% if files %}
-    <ul>
-    {% for f in files %}
-      <li>
-        {{ f[2] }} ({{ (f[3] / (1024*1024))|round(2) }} MB) →
-        <a href="/stream/{{ f[1] }}">Download/Stream</a>
-      </li>
-    {% endfor %}
-    </ul>
-  {% else %}
-    <p>No files found.</p>
-  {% endif %}
-{% endblock %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Telegram Storage</title>
+</head>
+<body>
+<h1>Files</h1>
+<form method="get">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search...">
+    <button type="submit">Search</button>
+</form>
+<form method="post" action="/upload">
+    <input type="text" name="url" placeholder="Direct file URL">
+    <button type="submit">Upload</button>
+</form>
+<ul>
+{% for f in files %}
+<li>{{ f.name }} - <a href="/stream/{{ f.id }}">Download</a></li>
+{% endfor %}
+</ul>
+</body>
+</html>
