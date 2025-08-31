@@ -1,6 +1,6 @@
-fastapi==0.107.0
-uvicorn[standard]==0.23.2
-jinja2==3.1.2
-pyrogram==2.0.48
-tgcrypto==1.2.3       # required by Pyrogram for encrypted sessions
-aiohttp==3.9.5
+fastapi
+uvicorn
+pyrogram
+aiohttp
+jinja2
+python-multipart
