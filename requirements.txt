@@ -4,3 +4,4 @@ pyrogram
 aiohttp
 jinja2
 python-multipart
+TgCrypto
