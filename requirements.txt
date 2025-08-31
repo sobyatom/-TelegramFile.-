@@ -1,6 +1,6 @@
 fastapi
 uvicorn
 pyrogram
-tgcrypto
 aiohttp
 jinja2
+sqlite3
