@@ -12,6 +12,11 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
+CHUNK_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
+
+# -----------------------------
+# App & Bot
+# -----------------------------
 app = FastAPI()
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -19,10 +24,9 @@ templates = Jinja2Templates(directory="templates")
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
-CHUNK_SIZE = 2 * 1024 * 1024 * 1024  # 2GB per Telegram file
-
-# ------------------ File helpers ------------------
-
+# -----------------------------
+# File helpers
+# -----------------------------
 async def download_to_temp(url):
     tmp = tempfile.NamedTemporaryFile(delete=False)
     tmp_path = tmp.name
@@ -55,8 +59,9 @@ async def upload_chunks(parts):
         msg_ids.append(msg.message_id)
     return msg_ids
 
-# ------------------ Routes ------------------
-
+# -----------------------------
+# Startup / Shutdown
+# -----------------------------
 @app.on_event("startup")
 async def startup():
     init_db()
@@ -66,6 +71,9 @@ async def startup():
 async def shutdown():
     await bot.stop()
 
+# -----------------------------
+# Routes
+# -----------------------------
 @app.get("/")
 async def index(request: Request, q: str = ""):
     files = search_files(q)
@@ -89,9 +97,11 @@ async def stream_file(file_id: int):
     file = next((f for f in files if f["id"] == file_id), None)
     if not file:
         return Response("File not found", status_code=404)
+
     async def streamer():
         for msg_id in file["msg_ids"]:
             msg = await bot.get_messages(CHANNEL_ID, msg_id)
             async for chunk in bot.iter_download(msg.document, chunk_size=1024*512):
                 yield chunk
+
     return Response(streamer(), media_type="application/octet-stream")
