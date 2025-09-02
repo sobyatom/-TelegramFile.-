@@ -1,132 +1,40 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Telegram File Index</title>
-<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
-<style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-        font-family: 'Roboto', sans-serif;
-        background: #f5f7fa;
-        min-height: 100vh;
-        padding: 20px;
-    }
-    .container {
-        max-width: 1100px;
-        margin: 0 auto;
-    }
-    h1 {
-        text-align: center;
-        margin-bottom: 30px;
-        color: #333;
-    }
-    form.search-bar {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 30px;
-    }
-    form.search-bar input {
-        width: 50%;
-        padding: 12px 15px;
-        border-radius: 8px 0 0 8px;
-        border: 1px solid #ccc;
-        font-size: 16px;
-    }
-    form.search-bar button {
-        padding: 12px 20px;
-        border-radius: 0 8px 8px 0;
-        border: none;
-        background-color: #4caf50;
-        color: white;
-        font-size: 16px;
-        cursor: pointer;
-        transition: 0.3s ease;
-    }
-    form.search-bar button:hover {
-        background-color: #45a049;
-    }
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        background: #fff;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    }
-    table th, table td {
-        padding: 12px 15px;
-        text-align: left;
-    }
-    table th {
-        background-color: #4caf50;
-        color: white;
-        font-weight: 500;
-    }
-    table tr:nth-child(even) {
-        background-color: #f9f9f9;
-    }
-    a.button {
-        display: inline-block;
-        padding: 8px 12px;
-        border-radius: 6px;
-        background-color: #4caf50;
-        color: white;
-        text-decoration: none;
-        font-size: 14px;
-        transition: 0.3s ease;
-    }
-    a.button:hover {
-        background-color: #45a049;
-    }
-    .footer {
-        margin-top: 40px;
-        text-align: center;
-        font-size: 12px;
-        color: #666;
-    }
-</style>
-</head>
-<body>
-<div class="container">
-    <h1>Telegram File Index</h1>
+{% extends "layout.html" %}
+{% block content %}
+<section class="card">
+  <h2>Upload (small / medium files)</h2>
+  <form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" required />
+    <button type="submit">Upload</button>
+  </form>
+  <p class="muted">For very large files (10GB+), use the CLI uploader in README.</p>
+</section>
 
-    <form class="search-bar" method="get" action="/">
-        <input type="text" name="q" placeholder="Search files..." value="{{ q }}">
-        <button type="submit">Search</button>
-    </form>
+<section class="card">
+  <h2>Files</h2>
+  {% if files %}
+    <ul class="files">
+      {% for name, meta in files.items() %}
+        <li>
+          <div class="left">
+            <strong>{{ name }}</strong>
+            <div class="muted">{{ meta.total_size }} bytes • {{ meta.chunks|length }} chunks</div>
+          </div>
+          <div class="right">
+            <a class="btn" href="/stream/{{ name }}">Download / Stream</a>
+            <a class="btn" href="/files/{{ name }}" target="_blank">Meta</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No files yet.</p>
+  {% endif %}
+</section>
 
-    {% if files %}
-    <table>
-        <thead>
-            <tr>
-                <th>File Name</th>
-                <th>Size (MB)</th>
-                <th>Date</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for file in files %}
-            <tr>
-                <td>{{ file.name }}</td>
-                <td>{{ (file.size / (1024*1024)) | round(2) }}</td>
-                <td>{{ file.date_iso }}</td>
-                <td>
-                    <a class="button" href="/stream/{{ file.msg_id }}">Stream</a>
-                    <a class="button" href="/download/telegram/{{ file.msg_id }}">Download</a>
-                    <a class="button" href="{{ file.link }}" target="_blank">Telegram Link</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-        <p style="text-align:center; margin-top:50px; color:#888;">No files found.</p>
-    {% endif %}
-
-    <div class="footer">© 2025 Telegram Storage</div>
-</div>
-</body>
-</html>
+<section class="card">
+  <h2>CLI Uploader</h2>
+  <pre><code>python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python cli/uploader.py --file /path/huge.iso --name huge.iso --index-url https://&lt;your-app&gt;.koyeb.app</code></pre>
+</section>
+{% endblock %}
