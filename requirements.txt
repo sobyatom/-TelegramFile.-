@@ -1,7 +1,6 @@
 fastapi
-uvicorn
-pyrogram
+uvicorn[standard]
 aiohttp
 jinja2
 python-multipart
-TgCrypto
+python-dotenv
