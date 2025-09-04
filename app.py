@@ -27,6 +27,7 @@ UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
 PORT = int(os.getenv('PORT', 5000))
 BASE_URL = os.getenv('BASE_URL', f'http://localhost:{PORT}')
 KOYEB_SERVICE_URL = os.getenv('KOYEB_SERVICE_URL', BASE_URL)
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB limit for direct download
 
 # Validate required environment variables
 if not TELEGRAM_BOT_TOKEN:
