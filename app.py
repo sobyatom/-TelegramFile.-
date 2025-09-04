@@ -339,4 +339,6 @@ if __name__ == '__main__':
     from threading import Thread
     Thread(target=bot.polling, kwargs={"none_stop": True}).start()
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Use port 8080 for Koyeb deployment
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
