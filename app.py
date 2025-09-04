@@ -153,7 +153,7 @@ def handle_start(message):
     welcome_text = """
 🤖 **Welcome to File Storage Bot!**
 
-I can help you store large files in Telegram and generate direct download links.
+I can help you store files and generate direct download links.
 
 **Available Commands:**
 /upload - Upload a file from a URL
@@ -164,7 +164,7 @@ I can help you store large files in Telegram and generate direct download links.
 1. Send me a file directly, or
 2. Use /upload with a URL
 
-I'll split large files into chunks automatically and provide you with a direct download link.
+I'll provide you with a direct download link.
     """
     safe_send_message(message.chat.id, welcome_text, parse_mode='Markdown')
 
@@ -214,20 +214,32 @@ def handle_document(message):
     """Handle document messages"""
     try:
         safe_send_message(message.chat.id, "📥 Downloading your file...")
-        # Simulate processing
+        
+        # Get the actual file from Telegram
+        file_info = safe_get_file(message.document.file_id)
         file_name = message.document.file_name or f"file_{uuid.uuid4().hex[:8]}"
-        time.sleep(2)  # Simulate processing time
         
-        # Generate a fake file ID for demonstration
+        # Download the file content
+        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_info.file_path}"
+        response = requests.get(file_url)
+        file_content = response.content
+        
+        # Save file locally
+        if not os.path.exists(UPLOAD_FOLDER):
+            os.makedirs(UPLOAD_FOLDER)
+        
+        file_path = os.path.join(UPLOAD_FOLDER, file_name)
+        with open(file_path, 'wb') as f:
+            f.write(file_content)
+        
+        # Store metadata with actual file content
         file_id = str(uuid.uuid4())
-        file_size = message.document.file_size or 1024 * 1024  # Default to 1MB if unknown
+        file_size = len(file_content)
         
-        # Store metadata
         file_metadata[file_id] = {
             'filename': file_name,
             'size': file_size,
-            'chunks': [f"fake_chunk_id_{i}" for i in range(3)],
-            'chunk_count': 3,
+            'content': file_content,  # Store actual content
             'upload_time': time.time()
         }
         
@@ -270,90 +282,6 @@ async def download_file_from_url(url, file_path):
         logger.error(f"Error downloading file from URL: {e}")
         return False
 
-def split_file(file_path, chunk_size=MAX_CHUNK_SIZE):
-    """Split a file into chunks"""
-    file_id = str(uuid.uuid4())
-    chunks = []
-    file_size = os.path.getsize(file_path)
-    total_chunks = math.ceil(file_size / chunk_size)
-    
-    logger.info(f"Splitting {file_size} bytes into {total_chunks} chunks")
-    
-    with open(file_path, 'rb') as f:
-        for i in range(total_chunks):
-            chunk_data = f.read(chunk_size)
-            chunk_name = f"{file_id}_chunk_{i}"
-            chunk_path = os.path.join(UPLOAD_FOLDER, chunk_name)
-            
-            with open(chunk_path, 'wb') as chunk_file:
-                chunk_file.write(chunk_data)
-            
-            chunks.append(chunk_path)
-    
-    return file_id, chunks, file_size
-
-async def upload_chunk_to_telegram_async(chunk_path, caption, semaphore):
-    """Upload a chunk to Telegram"""
-    async with semaphore:
-        try:
-            with open(chunk_path, 'rb') as f:
-                message = safe_send_document(
-                    chat_id=TELEGRAM_CHAT_ID,
-                    document=f,
-                    caption=caption,
-                    timeout=300
-                )
-            return message.document.file_id
-        except Exception as e:
-            logger.error(f"Error uploading chunk to Telegram: {e}")
-            raise
-
-async def upload_all_chunks(chunk_paths, file_id):
-    """Upload all chunks asynchronously"""
-    semaphore = asyncio.Semaphore(3)  # Limit concurrent uploads
-    tasks = []
-    
-    for i, chunk_path in enumerate(chunk_paths):
-        caption = f"{file_id}_{i}"
-        task = upload_chunk_to_telegram_async(chunk_path, caption, semaphore)
-        tasks.append(task)
-    
-    return await asyncio.gather(*tasks)
-
-def process_uploaded_file(file_path, filename):
-    """Process an uploaded file"""
-    try:
-        file_id, chunks, file_size = split_file(file_path)
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        telegram_file_ids = loop.run_until_complete(upload_all_chunks(chunks, file_id))
-        
-        # Clean up local chunks
-        for chunk_path in chunks:
-            if os.path.exists(chunk_path):
-                os.unlink(chunk_path)
-        
-        # Store metadata
-        file_metadata[file_id] = {
-            'filename': filename,
-            'size': file_size,
-            'chunks': telegram_file_ids,
-            'chunk_count': len(telegram_file_ids),
-            'upload_time': time.time()
-        }
-        
-        if os.path.exists(file_path):
-            os.unlink(file_path)
-        
-        return file_id, file_size, len(telegram_file_ids)
-        
-    except Exception as e:
-        logger.error(f"Error processing file: {e}")
-        if os.path.exists(file_path):
-            os.unlink(file_path)
-        raise
-
 @app.route('/')
 def home():
     return {
@@ -374,7 +302,7 @@ def home():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Upload a file to Telegram storage"""
+    """Upload a file to storage"""
     if bot is None:
         return {"error": "Bot is not initialized. Please check your TELEGRAM_BOT_TOKEN."}, 500
         
@@ -389,28 +317,29 @@ def upload_file():
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
     
-    temp_path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(temp_path)
+    file_content = file.read()
+    file_id = str(uuid.uuid4())
+    file_size = len(file_content)
     
-    try:
-        file_id, file_size, chunk_count = process_uploaded_file(temp_path, file.filename)
-        
-        return {
-            "file_id": file_id,
-            "filename": file.filename,
-            "size": file_size,
-            "chunk_count": chunk_count,
-            "message": "File uploaded successfully",
-            "download_url": f"{BASE_URL}/download/{file_id}"
-        }, 200
-        
-    except Exception as e:
-        logger.error(f"Error uploading file: {e}")
-        return {"error": str(e)}, 500
+    # Store metadata
+    file_metadata[file_id] = {
+        'filename': file.filename,
+        'size': file_size,
+        'content': file_content,
+        'upload_time': time.time()
+    }
+    
+    return {
+        "file_id": file_id,
+        "filename": file.filename,
+        "size": file_size,
+        "message": "File uploaded successfully",
+        "download_url": f"{BASE_URL}/download/{file_id}"
+    }, 200
 
 @app.route('/upload/url', methods=['POST'])
 def upload_from_url():
-    """Upload a file from a URL to Telegram storage"""
+    """Upload a file from a URL to storage"""
     if bot is None:
         return {"error": "Bot is not initialized"}, 500
         
@@ -443,14 +372,29 @@ def upload_from_url():
         if not success:
             return {"error": "Failed to download file from URL"}, 500
         
-        # Process the downloaded file
-        file_id, file_size, chunk_count = process_uploaded_file(temp_path, filename)
+        # Read the downloaded file
+        with open(temp_path, 'rb') as f:
+            file_content = f.read()
+        
+        file_id = str(uuid.uuid4())
+        file_size = len(file_content)
+        
+        # Store metadata
+        file_metadata[file_id] = {
+            'filename': filename,
+            'size': file_size,
+            'content': file_content,
+            'upload_time': time.time()
+        }
+        
+        # Clean up
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
         
         return {
             "file_id": file_id,
             "filename": filename,
             "size": file_size,
-            "chunk_count": chunk_count,
             "message": "File uploaded successfully from URL",
             "download_url": f"{BASE_URL}/download/{file_id}"
         }, 200
@@ -463,91 +407,22 @@ def upload_from_url():
 
 @app.route('/download/<file_id>', methods=['GET'])
 def download_file(file_id):
-    """Download a file by streaming chunks from Telegram"""
-    if bot is None:
-        return {"error": "Bot is not initialized"}, 500
-        
+    """Download a file directly from memory"""
     if file_id not in file_metadata:
         abort(404, description="File not found")
     
     metadata = file_metadata[file_id]
-    chunk_ids = metadata['chunks']
-    file_size = metadata['size']
     filename = metadata['filename']
     
-    # Handle range requests for pause/resume and partial downloads
-    range_header = request.headers.get('Range')
-    if range_header:
-        # Parse range header
-        ranges = range_header.replace('bytes=', '').split('-')
-        start = int(ranges[0]) if ranges[0] else 0
-        end = int(ranges[1]) if ranges[1] else file_size - 1
-    else:
-        start = 0
-        end = file_size - 1
-    
-    # Calculate which chunks to download - FIXED: Convert to integers
-    chunk_size = MAX_CHUNK_SIZE
-    first_chunk = int(start // chunk_size)  # Convert to integer
-    last_chunk = int(end // chunk_size)     # Convert to integer
-    
-    def generate():
-        # Stream chunks in sequence
-        for i in range(first_chunk, last_chunk + 1):
-            chunk_id = chunk_ids[i]
-            
-            try:
-                # Download chunk from Telegram
-                file_info = safe_get_file(chunk_id)
-                file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_info.file_path}"
-                
-                response = requests.get(file_url, stream=True, timeout=30)
-                if response.status_code != 200:
-                    raise Exception(f"Failed to download chunk: {response.status_code}")
-                
-                chunk_data = response.content
-                
-                # Determine what part of the chunk to send
-                chunk_start = i * chunk_size
-                chunk_end = min((i + 1) * chunk_size, file_size) - 1
-                
-                # Adjust for range requests
-                if i == first_chunk:
-                    offset = start - chunk_start
-                else:
-                    offset = 0
-                    
-                if i == last_chunk:
-                    length = end - chunk_start - offset + 1
-                else:
-                    length = chunk_size - offset
-                
-                # Yield the appropriate part of the chunk
-                yield chunk_data[offset:offset+length]
-                
-            except Exception as e:
-                logger.error(f"Error downloading chunk {i}: {e}")
-                # Continue with next chunk instead of failing completely
-                continue
-    
-    # Set appropriate headers
-    headers = {
-        'Content-Disposition': f'attachment; filename="{filename}"',
-        'Accept-Ranges': 'bytes',
-        'Content-Type': 'application/octet-stream'
-    }
-    
-    if range_header:
-        status = 206
-        headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
-        content_length = end - start + 1
-    else:
-        status = 200
-        content_length = file_size
-    
-    headers['Content-Length'] = str(content_length)
-    
-    return Response(generate(), status=status, headers=headers)
+    # Return the actual file content stored in memory
+    return Response(
+        metadata['content'],
+        mimetype='application/octet-stream',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(metadata['size'])
+        }
+    )
 
 @app.route('/files/<file_id>/info', methods=['GET'])
 def get_file_info(file_id):
@@ -560,7 +435,6 @@ def get_file_info(file_id):
         "file_id": file_id,
         "filename": metadata['filename'],
         "size": metadata['size'],
-        "chunk_count": metadata['chunk_count'],
         "upload_time": metadata['upload_time'],
         "download_url": f"{BASE_URL}/download/{file_id}"
     }
@@ -575,7 +449,6 @@ def list_files():
                 "file_id": file_id,
                 "filename": metadata['filename'],
                 "size": metadata['size'],
-                "chunk_count": metadata['chunk_count'],
                 "upload_time": metadata['upload_time'],
                 "download_url": f"{BASE_URL}/download/{file_id}"
             }
