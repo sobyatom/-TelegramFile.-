@@ -132,8 +132,8 @@ def setup_webhook():
         logger.error(f"Failed to set webhook: {e}")
         return False
 
-# Webhook endpoint
-@app.route(f'/webhook/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
+# Webhook endpoint - FIXED VERSION
+@app.route('/webhook/<path:token>', methods=['POST'])
 def webhook(token):
     if token != TELEGRAM_BOT_TOKEN:
         abort(403)
@@ -573,7 +573,7 @@ def list_files():
                 "file_id": file_id,
                 "filename": metadata['filename'],
                 "size": metadata['size'],
-                "chunk_count": metadata['chunk_count'],
+                "chunk_count': metadata['chunk_count'],
                 "upload_time": metadata['upload_time'],
                 "download_url": f"{BASE_URL}/download/{file_id}"
             }
@@ -600,7 +600,7 @@ def health_check():
         'service': 'Telegram File Storage Bot'
     }
 
-@app.route('/debug/bot', methods=['GET'])
+@app.route('/debug/bot', methods['GET'])
 def debug_bot():
     """Debug endpoint for bot status"""
     try:
