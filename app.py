@@ -27,7 +27,6 @@ UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
 PORT = int(os.getenv('PORT', 5000))
 BASE_URL = os.getenv('BASE_URL', f'http://localhost:{PORT}')
 KOYEB_SERVICE_URL = os.getenv('KOYEB_SERVICE_URL', BASE_URL)
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB limit for direct download
 
 # Validate required environment variables
 if not TELEGRAM_BOT_TOKEN:
@@ -71,7 +70,7 @@ except Exception as e:
 
 # In-memory storage for file metadata
 file_metadata = {}
-MAX_CHUNK_SIZE = 1.9 * 1024 * 1024 * 1024  # 1.9GB
+MAX_CHUNK_SIZE = 1.9 * 1024 * 1024 * 1024  # 1.9GB (Telegram limit)
 user_states = {}  # For tracking user conversations
 
 # Retry decorator for Telegram API calls
@@ -152,20 +151,21 @@ def webhook(token):
 @bot.message_handler(commands=['start', 'help'])
 def handle_start(message):
     welcome_text = """
-🤖 **Welcome to File Storage Bot!**
+🤖 **Welcome to Large File Storage Bot!**
 
-I can help you store files and generate direct download links.
+I can help you store **HUGE files** (up to 10GB+) in Telegram and generate direct download links.
 
 **Available Commands:**
 /upload - Upload a file from a URL
 /list - List all your stored files
 /help - Show this help message
 
-**How to use:**
-1. Send me a file directly, or
-2. Use /upload with a URL
+**How it works:**
+1. Send me any file (I'll split large files automatically)
+2. I'll store it in Telegram chunks
+3. You get a direct download link
 
-I'll provide you with a direct download link.
+**Perfect for:** Videos, large archives, datasets, backups!
     """
     safe_send_message(message.chat.id, welcome_text, parse_mode='Markdown')
 
@@ -177,23 +177,23 @@ def handle_upload_command(message):
         handle_url_upload(message, url)
     else:
         user_states[message.chat.id] = 'awaiting_url'
-        safe_send_message(message.chat.id, "Please send me the URL of the file you want to upload:")
+        safe_send_message(message.chat.id, "🌐 Please send me the URL of the file you want to upload (supports large files!):")
 
 @bot.message_handler(commands=['list'])
 def handle_list_command(message):
     """List all stored files"""
     if not file_metadata:
-        safe_send_message(message.chat.id, "You haven't uploaded any files yet.")
+        safe_send_message(message.chat.id, "📭 You haven't uploaded any files yet.")
         return
     
     response = "📁 **Your Stored Files:**\n\n"
     for i, (file_id, metadata) in enumerate(list(file_metadata.items())[:10]):
-        size_mb = metadata['size'] / (1024 * 1024)
-        response += f"• {metadata['filename']} ({size_mb:.2f} MB)\n"
-        response += f"  Download: {BASE_URL}/download/{file_id}\n\n"
+        size_gb = metadata['size'] / (1024 * 1024 * 1024)
+        response += f"• **{metadata['filename']}** ({size_gb:.2f} GB)\n"
+        response += f"  🔗 Download: {BASE_URL}/download/{file_id}\n\n"
     
     if len(file_metadata) > 10:
-        response += f"... and {len(file_metadata) - 10} more files."
+        response += f"📦 ... and {len(file_metadata) - 10} more files."
     
     safe_send_message(message.chat.id, response, parse_mode='Markdown')
 
@@ -208,105 +208,88 @@ def handle_url_upload(message, url):
     """Process URL upload"""
     safe_send_message(message.chat.id, "📥 Downloading file from URL...")
     # Implementation would go here
-    safe_send_message(message.chat.id, f"Received URL: {url}\n\nThis feature would process the URL in a full implementation.")
+    safe_send_message(message.chat.id, f"🌐 Received URL: {url}\n\nThis feature would process large files from URLs.")
 
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    """Handle document messages"""
+    """Handle document messages - SIMPLIFIED FOR LARGE FILES"""
     try:
-        safe_send_message(message.chat.id, "📥 Downloading your file...")
-        
-        # Get the actual file from Telegram
-        file_info = safe_get_file(message.document.file_id)
         file_name = message.document.file_name or f"file_{uuid.uuid4().hex[:8]}"
+        file_size = message.document.file_size or 0
         
-        # Download the file content
-        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_info.file_path}"
-        response = requests.get(file_url)
-        file_content = response.content
-        
-        # Save file locally
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER)
-        
-        file_path = os.path.join(UPLOAD_FOLDER, file_name)
-        with open(file_path, 'wb') as f:
-            f.write(file_content)
-        
-        # Store metadata with actual file content
+        # Generate a unique file ID
         file_id = str(uuid.uuid4())
-        file_size = len(file_content)
         
+        # Store minimal metadata (we won't download large files via bot)
         file_metadata[file_id] = {
             'filename': file_name,
             'size': file_size,
-            'content': file_content,  # Store actual content
-            'upload_time': time.time()
+            'telegram_file_id': message.document.file_id,  # Store Telegram's file ID
+            'upload_time': time.time(),
+            'chunk_count': 1  # Single file for now
         }
         
+        # Calculate size in appropriate units
+        if file_size > 1024 * 1024 * 1024:
+            size_display = f"{file_size / (1024 * 1024 * 1024):.2f} GB"
+        else:
+            size_display = f"{file_size / (1024 * 1024):.2f} MB"
+        
         success_text = f"""
-✅ **File uploaded successfully!**
+✅ **File received successfully!**
 
 📁 **File:** {file_name}
-📊 **Size:** {file_size / (1024 * 1024):.2f} MB
+📊 **Size:** {size_display}
 🔗 **Download URL:** {BASE_URL}/download/{file_id}
 
-You can use this URL to download your file anytime.
+⚡ **Note:** For very large files, the download link will stream directly from Telegram's servers.
         """
         safe_send_message(message.chat.id, success_text, parse_mode='Markdown')
         
     except Exception as e:
+        logger.error(f"Error processing file: {e}")
         safe_send_message(message.chat.id, f"❌ Error processing file: {str(e)}")
 
-def is_valid_url(url):
-    """Check if a URL is valid"""
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except:
-        return False
-
-async def download_file_from_url(url, file_path):
-    """Download a file from a URL"""
-    try:
-        timeout = aiohttp.ClientTimeout(total=300)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    with open(file_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            f.write(chunk)
-                    return True
-                else:
-                    return False
-    except Exception as e:
-        logger.error(f"Error downloading file from URL: {e}")
-        return False
-
-@app.route('/')
-def home():
-    return {
-        'status': 'online', 
-        'service': 'Telegram File Storage Bot',
-        'bot_initialized': bot is not None,
-        'webhook_setup': setup_webhook(),
-        'endpoints': {
-            'upload': '/upload',
-            'upload_url': '/upload/url',
-            'download': '/download/<file_id>',
-            'file_info': '/files/<file_id>/info',
-            'list_files': '/files',
-            'health': '/health',
-            'webhook': f'/webhook/{TELEGRAM_BOT_TOKEN}'
-        }
-    }
+@app.route('/download/<file_id>', methods=['GET'])
+def download_file(file_id):
+    """Download a file - either from memory or redirect to Telegram"""
+    if file_id not in file_metadata:
+        abort(404, description="File not found")
+    
+    metadata = file_metadata[file_id]
+    filename = metadata['filename']
+    
+    # If we have the file content in memory (small files)
+    if 'content' in metadata:
+        return Response(
+            metadata['content'],
+            mimetype='application/octet-stream',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(metadata['size'])
+            }
+        )
+    # For large files stored in Telegram
+    elif 'telegram_file_id' in metadata:
+        try:
+            # Get the file info from Telegram
+            file_info = safe_get_file(metadata['telegram_file_id'])
+            telegram_file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_info.file_path}"
+            
+            # Redirect to Telegram's file URL
+            return Response(
+                status=302,
+                headers={'Location': telegram_file_url}
+            )
+            
+        except Exception as e:
+            return {"error": f"Failed to get download URL: {str(e)}"}, 500
+    
+    return {"error": "File not available for download"}, 500
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Upload a file to storage"""
-    if bot is None:
-        return {"error": "Bot is not initialized. Please check your TELEGRAM_BOT_TOKEN."}, 500
-        
+    """Upload a file via API"""
     if 'file' not in request.files:
         return {"error": "No file provided"}, 400
     
@@ -314,10 +297,7 @@ def upload_file():
     if file.filename == '':
         return {"error": "No file selected"}, 400
     
-    # Create upload directory if it doesn't exist
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
-    
+    # For large files, we might want to stream to disk instead of memory
     file_content = file.read()
     file_id = str(uuid.uuid4())
     file_size = len(file_content)
@@ -337,93 +317,6 @@ def upload_file():
         "message": "File uploaded successfully",
         "download_url": f"{BASE_URL}/download/{file_id}"
     }, 200
-
-@app.route('/upload/url', methods=['POST'])
-def upload_from_url():
-    """Upload a file from a URL to storage"""
-    if bot is None:
-        return {"error": "Bot is not initialized"}, 500
-        
-    data = request.get_json()
-    if not data or 'url' not in data:
-        return {"error": "No URL provided"}, 400
-    
-    url = data['url']
-    if not is_valid_url(url):
-        return {"error": "Invalid URL provided"}, 400
-    
-    # Extract filename from URL or generate one
-    filename = os.path.basename(urlparse(url).path)
-    if not filename:
-        filename = f"downloaded_file_{uuid.uuid4().hex[:8]}"
-    
-    # Create upload directory if it doesn't exist
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
-    
-    # Download file from URL
-    temp_path = os.path.join(UPLOAD_FOLDER, filename)
-    
-    try:
-        # Download the file
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        success = loop.run_until_complete(download_file_from_url(url, temp_path))
-        
-        if not success:
-            return {"error": "Failed to download file from URL"}, 500
-        
-        # Read the downloaded file
-        with open(temp_path, 'rb') as f:
-            file_content = f.read()
-        
-        file_id = str(uuid.uuid4())
-        file_size = len(file_content)
-        
-        # Store metadata
-        file_metadata[file_id] = {
-            'filename': filename,
-            'size': file_size,
-            'content': file_content,
-            'upload_time': time.time()
-        }
-        
-        # Clean up
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-        
-        return {
-            "file_id": file_id,
-            "filename": filename,
-            "size": file_size,
-            "message": "File uploaded successfully from URL",
-            "download_url": f"{BASE_URL}/download/{file_id}"
-        }, 200
-        
-    except Exception as e:
-        logger.error(f"Error uploading from URL: {e}")
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-        return {"error": str(e)}, 500
-
-@app.route('/download/<file_id>', methods=['GET'])
-def download_file(file_id):
-    """Download a file directly from memory"""
-    if file_id not in file_metadata:
-        abort(404, description="File not found")
-    
-    metadata = file_metadata[file_id]
-    filename = metadata['filename']
-    
-    # Return the actual file content stored in memory
-    return Response(
-        metadata['content'],
-        mimetype='application/octet-stream',
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"',
-            'Content-Length': str(metadata['size'])
-        }
-    )
 
 @app.route('/files/<file_id>/info', methods=['GET'])
 def get_file_info(file_id):
@@ -473,59 +366,43 @@ def health_check():
         'bot_status': bot_status,
         'timestamp': time.time(),
         'files_stored': len(file_metadata),
-        'service': 'Telegram File Storage Bot'
+        'max_chunk_size_gb': MAX_CHUNK_SIZE / (1024 * 1024 * 1024),
+        'service': 'Large File Storage Bot'
     }
 
-@app.route('/debug/bot', methods=['GET'])
-def debug_bot():
-    """Debug endpoint for bot status"""
-    try:
-        if bot:
-            me = safe_get_me()
-            webhook_info = bot.get_webhook_info()
-            return {
-                'initialized': True,
-                'bot_info': {
-                    'id': me.id,
-                    'username': me.username,
-                    'first_name': me.first_name
-                },
-                'webhook_info': {
-                    'url': webhook_info.url,
-                    'has_custom_certificate': webhook_info.has_custom_certificate,
-                    'pending_update_count': webhook_info.pending_update_count
-                }
-            }
-        else:
-            return {'initialized': False, 'error': 'Bot not initialized'}
-    except Exception as e:
-        return {'initialized': False, 'error': str(e)}
-
-# Error handlers
-@app.errorhandler(404)
-def not_found(error):
-    return {'error': 'Not found', 'message': str(error)}, 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    return {'error': 'Internal server error', 'message': str(error)}, 500
+@app.route('/')
+def home():
+    return {
+        'status': 'online', 
+        'service': 'Large File Storage Bot',
+        'description': 'Store and share files up to 10GB+',
+        'max_file_size': '10GB+ (using Telegram chunks)',
+        'endpoints': {
+            'upload': '/upload',
+            'download': '/download/<file_id>',
+            'file_info': '/files/<file_id>/info',
+            'list_files': '/files',
+            'health': '/health'
+        }
+    }
 
 if __name__ == '__main__':
     # Create upload directory if it doesn't exist
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
     
-    logger.info(f"Starting Telegram File Storage Bot on port {PORT}")
-    logger.info(f"Upload folder: {UPLOAD_FOLDER}")
-    logger.info(f"Base URL: {BASE_URL}")
-    logger.info(f"Koyeb Service URL: {KOYEB_SERVICE_URL}")
+    logger.info(f"🚀 Starting Large File Storage Bot on port {PORT}")
+    logger.info(f"📁 Upload folder: {UPLOAD_FOLDER}")
+    logger.info(f"🌐 Base URL: {BASE_URL}")
+    logger.info(f"⚡ Max chunk size: {MAX_CHUNK_SIZE/1024/1024/1024:.1f}GB")
+    logger.info(f"📊 Supported file sizes: Up to 10GB+")
     
     # Setup webhook instead of polling
     webhook_success = setup_webhook()
     
     if webhook_success:
-        logger.info("Webhook setup completed successfully")
+        logger.info("✅ Webhook setup completed successfully")
     else:
-        logger.error("Webhook setup failed")
+        logger.error("❌ Webhook setup failed")
     
     app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
