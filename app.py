@@ -573,7 +573,7 @@ def list_files():
                 "file_id": file_id,
                 "filename": metadata['filename'],
                 "size": metadata['size'],
-                "chunk_count': metadata['chunk_count'],
+                "chunk_count": metadata['chunk_count'],  # FIXED: changed ' to "
                 "upload_time": metadata['upload_time'],
                 "download_url": f"{BASE_URL}/download/{file_id}"
             }
@@ -600,7 +600,7 @@ def health_check():
         'service': 'Telegram File Storage Bot'
     }
 
-@app.route('/debug/bot', methods['GET'])
+@app.route('/debug/bot', methods=['GET'])  # FIXED: Added colon
 def debug_bot():
     """Debug endpoint for bot status"""
     try:
