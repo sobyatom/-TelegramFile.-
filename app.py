@@ -252,7 +252,7 @@ def handle_document(message):
 
 @app.route('/download/<file_id>', methods=['GET'])
 def download_file(file_id):
-    """Download a file - either from memory or redirect to Telegram"""
+    """Download a file - either from memory or stream from Telegram"""
     if file_id not in file_metadata:
         abort(404, description="File not found")
     
@@ -269,21 +269,38 @@ def download_file(file_id):
                 'Content-Length': str(metadata['size'])
             }
         )
-    # For large files stored in Telegram
+    # For large files stored in Telegram - STREAM PROPERLY
     elif 'telegram_file_id' in metadata:
         try:
             # Get the file info from Telegram
             file_info = safe_get_file(metadata['telegram_file_id'])
             telegram_file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_info.file_path}"
             
-            # Redirect to Telegram's file URL
+            # Stream the file from Telegram with proper error handling
+            def generate():
+                try:
+                    with requests.get(telegram_file_url, stream=True, timeout=30) as response:
+                        response.raise_for_status()
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                yield chunk
+                except Exception as e:
+                    logger.error(f"Error streaming from Telegram: {e}")
+                    yield f"Error downloading file: {str(e)}".encode()
+            
             return Response(
-                status=302,
-                headers={'Location': telegram_file_url}
+                generate(),
+                mimetype='application/octet-stream',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Length': str(metadata['size']),
+                    'Cache-Control': 'no-cache'
+                }
             )
             
         except Exception as e:
-            return {"error": f"Failed to get download URL: {str(e)}"}, 500
+            logger.error(f"Failed to get download URL: {e}")
+            return {"error": f"Failed to prepare download: {str(e)}"}, 500
     
     return {"error": "File not available for download"}, 500
 
@@ -328,7 +345,8 @@ def get_file_info(file_id):
     return {
         "file_id": file_id,
         "filename": metadata['filename'],
-        "size": metadata['size'],
+        'file_size': metadata['size'],
+        'size_readable': f"{metadata['size'] / (1024 * 1024):.2f} MB" if metadata['size'] < 1024 * 1024 * 1024 else f"{metadata['size'] / (1024 * 1024 * 1024):.2f} GB",
         "upload_time": metadata['upload_time'],
         "download_url": f"{BASE_URL}/download/{file_id}"
     }
@@ -343,6 +361,7 @@ def list_files():
                 "file_id": file_id,
                 "filename": metadata['filename'],
                 "size": metadata['size'],
+                "size_readable": f"{metadata['size'] / (1024 * 1024):.2f} MB" if metadata['size'] < 1024 * 1024 * 1024 else f"{metadata['size'] / (1024 * 1024 * 1024):.2f} GB",
                 "upload_time": metadata['upload_time'],
                 "download_url": f"{BASE_URL}/download/{file_id}"
             }
