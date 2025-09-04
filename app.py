@@ -122,7 +122,9 @@ def setup_webhook():
         return False
     
     try:
-        webhook_url = f"{KOYEB_SERVICE_URL}/webhook/{TELEGRAM_BOT_TOKEN}"
+        # Remove any trailing slash from base URL to avoid double slashes
+        base_url = KOYEB_SERVICE_URL.rstrip('/')
+        webhook_url = f"{base_url}/webhook/{TELEGRAM_BOT_TOKEN}"
         bot.remove_webhook()
         time.sleep(1)
         success = bot.set_webhook(url=webhook_url)
@@ -132,7 +134,7 @@ def setup_webhook():
         logger.error(f"Failed to set webhook: {e}")
         return False
 
-# Webhook endpoint - FIXED VERSION
+# Webhook endpoint
 @app.route('/webhook/<path:token>', methods=['POST'])
 def webhook(token):
     if token != TELEGRAM_BOT_TOKEN:
@@ -484,10 +486,10 @@ def download_file(file_id):
         start = 0
         end = file_size - 1
     
-    # Calculate which chunks to download
+    # Calculate which chunks to download - FIXED: Convert to integers
     chunk_size = MAX_CHUNK_SIZE
-    first_chunk = start // chunk_size
-    last_chunk = end // chunk_size
+    first_chunk = int(start // chunk_size)  # Convert to integer
+    last_chunk = int(end // chunk_size)     # Convert to integer
     
     def generate():
         # Stream chunks in sequence
@@ -573,7 +575,7 @@ def list_files():
                 "file_id": file_id,
                 "filename": metadata['filename'],
                 "size": metadata['size'],
-                "chunk_count": metadata['chunk_count'],  # FIXED: changed ' to "
+                "chunk_count": metadata['chunk_count'],
                 "upload_time": metadata['upload_time'],
                 "download_url": f"{BASE_URL}/download/{file_id}"
             }
@@ -600,7 +602,7 @@ def health_check():
         'service': 'Telegram File Storage Bot'
     }
 
-@app.route('/debug/bot', methods=['GET'])  # FIXED: Added colon
+@app.route('/debug/bot', methods=['GET'])
 def debug_bot():
     """Debug endpoint for bot status"""
     try:
@@ -649,7 +651,3 @@ if __name__ == '__main__':
     
     if webhook_success:
         logger.info("Webhook setup completed successfully")
-    else:
-        logger.error("Webhook setup failed")
-    
-    app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
