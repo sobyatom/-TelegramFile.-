@@ -1,0 +1,20 @@
+version: 1
+name: telegram-file-bot
+services:
+  - name: app
+    image: koyeb/app:telegram-file-bot
+    ports:
+      - port: 8080  # Koyeb uses port 8080
+        http: true
+    routes:
+      - path: /
+        port: 8080  # Route to port 8080
+    env:
+      - name: TELEGRAM_BOT_TOKEN
+        secret: true
+      - name: TELEGRAM_CHAT_ID
+        secret: true
+      - name: UPLOAD_FOLDER
+        value: uploads
+      - name: PORT
+        value: 8080  # Set PORT environment variable
